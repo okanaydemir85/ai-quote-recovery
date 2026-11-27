@@ -17,6 +17,7 @@ h1{font-size:28px;margin-bottom:7px}
 .top{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap}
 button{border:0;border-radius:8px;padding:11px 17px;background:#2458dc;color:white;cursor:pointer;font-weight:600}
 button:hover{opacity:.9}
+button:disabled{opacity:.5;cursor:wait}
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:28px 0}
 .card,.panel{background:white;border:1px solid #e8edf3;border-radius:12px;padding:20px}
 .card small{color:#778395}
@@ -37,6 +38,7 @@ label{font-size:12px;font-weight:600;display:block;margin-bottom:6px}
 .field{margin-bottom:12px}
 textarea{min-height:120px;resize:vertical}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+#message{margin-top:12px;font-size:13px}
 @media(max-width:750px){.cards{grid-template-columns:repeat(2,1fr)}.formgrid{grid-template-columns:1fr}main{margin-top:25px}}
 @media(max-width:420px){.cards{grid-template-columns:1fr 1fr}.card{padding:14px}.number{font-size:23px}}
 </style>
@@ -55,11 +57,13 @@ textarea{min-height:120px;resize:vertical}
     <button onclick="showForm()">+ Add quotation</button>
   </div>
 
+  <div id="message" class="muted">Loading quotations...</div>
+
   <section class="cards">
-    <div class="card"><small>Total quotations</small><div class="number" id="total">3</div></div>
-    <div class="card"><small>Follow-ups needed</small><div class="number" id="pending">2</div></div>
-    <div class="card"><small>Won quotations</small><div class="number" id="won">1</div></div>
-    <div class="card"><small>Total quotation value</small><div class="number" id="value">€12,500</div></div>
+    <div class="card"><small>Total quotations</small><div class="number" id="total">0</div></div>
+    <div class="card"><small>Follow-ups needed</small><div class="number" id="pending">0</div></div>
+    <div class="card"><small>Won quotations</small><div class="number" id="won">0</div></div>
+    <div class="card"><small>Total quotation value</small><div class="number" id="value">€0</div></div>
   </section>
 
   <section class="panel" id="formArea">
@@ -67,11 +71,11 @@ textarea{min-height:120px;resize:vertical}
     <div class="formgrid">
       <div class="field"><label>Customer name</label><input id="customer" placeholder="ABC Industries"></div>
       <div class="field"><label>Customer email</label><input id="email" type="email" placeholder="customer@example.com"></div>
-      <div class="field"><label>Quotation value (€)</label><input id="amount" type="number" min="0" placeholder="5000"></div>
+      <div class="field"><label>Quotation value (€)</label><input id="amount" type="number" min="0" step="0.01" placeholder="5000"></div>
       <div class="field"><label>Quotation date</label><input id="date" type="date"></div>
     </div>
     <div class="actions">
-      <button onclick="addQuote()">Save quotation</button>
+      <button id="saveButton" onclick="addQuote()">Save quotation</button>
       <button class="secondary" onclick="hideForm()">Cancel</button>
     </div>
   </section>
@@ -102,55 +106,185 @@ textarea{min-height:120px;resize:vertical}
     </div>
     <div class="muted" id="copyStatus"></div>
   </section>
-  <p class="muted" style="text-align:center;margin:35px 0">QuoteFlow AI · Version 1.0 · Prototype</p>
+  <p class="muted" style="text-align:center;margin:35px 0">QuoteFlow AI · Version 1.1</p>
 </main>
+
 <script>
-let quotes=[
- {customer:"ABC Industrial",email:"abc@example.com",amount:5000,date:"2026-11-20",status:"Follow-up"},
- {customer:"Global Machines",email:"global@example.com",amount:4500,date:"2026-11-21",status:"Follow-up"},
- {customer:"Tech Solutions",email:"tech@example.com",amount:3000,date:"2026-11-18",status:"Won"}
-];
-function render(){
- const q=document.getElementById("search").value.toLowerCase();
- const filtered=quotes.filter(x=>x.customer.toLowerCase().includes(q));
- document.getElementById("quotes").innerHTML=filtered.map(x=>{
- const i=quotes.indexOf(x);
- return `<tr><td><b>${escapeHTML(x.customer)}</b><br><span class="muted">${escapeHTML(x.email)}</span></td>
- <td>€${Number(x.amount).toLocaleString("en-US")}</td><td>${escapeHTML(x.date)}</td>
- <td><span class="status ${x.status==="Won"?"won":x.status==="Lost"?"lost":""}">${x.status}</span></td>
- <td><button class="secondary" onclick="makeDraft(${i})">AI follow-up</button></td></tr>`;
- }).join("");
- document.getElementById("total").textContent=quotes.length;
- document.getElementById("pending").textContent=quotes.filter(x=>x.status==="Follow-up").length;
- document.getElementById("won").textContent=quotes.filter(x=>x.status==="Won").length;
- document.getElementById("value").textContent="€"+quotes.reduce((s,x)=>s+Number(x.amount),0).toLocaleString("en-US");
+let quotes = [];
+
+function escapeHTML(s) {
+  return String(s ?? "").replace(/[&<>"']/g,c=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
 }
-function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function showForm(){document.getElementById("formArea").style.display="block"}
-function hideForm(){document.getElementById("formArea").style.display="none"}
-function addQuote(){
- const customer=document.getElementById("customer").value.trim();
- const email=document.getElementById("email").value.trim();
- const amount=Number(document.getElementById("amount").value);
- const date=document.getElementById("date").value;
- if(!customer||!email||!email.includes("@")||amount<=0||!date){alert("Please enter valid quotation details.");return}
- quotes.push({customer,email,amount,date,status:"Follow-up"});
- ["customer","email","amount","date"].forEach(id=>document.getElementById(id).value="");
- hideForm();render();
+
+function displayStatus(status) {
+  if(status === "won") return "Won";
+  if(status === "lost") return "Lost";
+  return "Follow-up";
 }
-function makeDraft(i){
- const x=quotes[i];
- document.getElementById("draft").value=
- `Subject: Following up on our quotation\n\nDear ${x.customer},\n\nI hope you are doing well.\n\nI wanted to follow up on our quotation of €${x.amount} sent on ${x.date}. Have you had a chance to review it?\n\nPlease let us know if you have any questions or need further information. We would be happy to help.\n\nBest regards`;
- document.getElementById("draftArea").style.display="block";
- document.getElementById("draftArea").scrollIntoView({behavior:"smooth"});
+
+function render() {
+  const search = document.getElementById("search").value.toLowerCase();
+
+  const filtered = quotes.filter(x =>
+    x.customer.toLowerCase().includes(search)
+  );
+
+  document.getElementById("quotes").innerHTML = filtered.map(x => {
+    const i = quotes.indexOf(x);
+    const status = displayStatus(x.status);
+
+    return `<tr>
+      <td><b>${escapeHTML(x.customer)}</b><br>
+      <span class="muted">${escapeHTML(x.email)}</span></td>
+      <td>€${Number(x.amount).toLocaleString("en-US")}</td>
+      <td>${escapeHTML(x.date || "")}</td>
+      <td><span class="status ${status==="Won"?"won":status==="Lost"?"lost":""}">${status}</span></td>
+      <td><button class="secondary" onclick="makeDraft(${i})">AI follow-up</button></td>
+    </tr>`;
+  }).join("");
+
+  if(filtered.length === 0) {
+    document.getElementById("quotes").innerHTML =
+      '<tr><td colspan="5">No quotations found.</td></tr>';
+  }
+
+  document.getElementById("total").textContent = quotes.length;
+  document.getElementById("pending").textContent =
+    quotes.filter(x => !["won","lost"].includes(x.status)).length;
+  document.getElementById("won").textContent =
+    quotes.filter(x => x.status === "won").length;
+  document.getElementById("value").textContent =
+    "€" + quotes.reduce((s,x) => s + Number(x.amount),0).toLocaleString("en-US");
 }
-function copyDraft(){
- navigator.clipboard.writeText(document.getElementById("draft").value).then(()=>{
- document.getElementById("copyStatus").textContent="Message copied.";
- }).catch(()=>{document.getElementById("copyStatus").textContent="Please select and copy the message manually.";});
+
+async function loadQuotes() {
+  const message = document.getElementById("message");
+
+  try {
+    const response = await fetch("/api/quotes");
+    if(!response.ok) throw new Error("Could not load quotations.");
+
+    const data = await response.json();
+
+    quotes = data.map(x => ({
+      id: x.id,
+      customer: x.customer_name || x.company_name || "",
+      email: x.customer_email || "",
+      amount: Number(x.amount) || 0,
+      date: x.quote_date || "",
+      status: x.status || "pending"
+    }));
+
+    render();
+    message.textContent = "Connected to database. Your quotations are saved.";
+  } catch(error) {
+    message.textContent = "Could not connect to the database. Please refresh the page.";
+    console.error(error);
+  }
 }
-render();
+
+function showForm() {
+  document.getElementById("formArea").style.display = "block";
+}
+
+function hideForm() {
+  document.getElementById("formArea").style.display = "none";
+}
+
+async function addQuote() {
+  const customer = document.getElementById("customer").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const amount = Number(document.getElementById("amount").value);
+  const date = document.getElementById("date").value;
+  const button = document.getElementById("saveButton");
+
+  if(!customer || !email || !email.includes("@") || amount <= 0 || !date) {
+    alert("Please enter valid quotation details.");
+    return;
+  }
+
+  const followUp = new Date(date + "T12:00:00");
+  followUp.setDate(followUp.getDate() + 7);
+  const followUpDate = followUp.toISOString().slice(0,10);
+
+  const quote = {
+    quote_number: "Q-" + Date.now(),
+    company_name: customer,
+    customer_name: customer,
+    customer_email: email,
+    amount: amount,
+    currency: "EUR",
+    quote_date: date,
+    follow_up_date: followUpDate,
+    status: "pending"
+  };
+
+  button.disabled = true;
+  button.textContent = "Saving...";
+
+  try {
+    const response = await fetch("/api/quotes", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(quote)
+    });
+
+    const result = await response.json();
+
+    if(!response.ok || !result.success) {
+      throw new Error(result.error || "Could not save quotation.");
+    }
+
+    ["customer","email","amount","date"].forEach(id =>
+      document.getElementById(id).value = ""
+    );
+
+    hideForm();
+    await loadQuotes();
+    document.getElementById("message").textContent =
+      "Quotation saved successfully.";
+  } catch(error) {
+    alert("Save failed: " + error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Save quotation";
+  }
+}
+
+function makeDraft(i) {
+  const x = quotes[i];
+
+  document.getElementById("draft").value =
+`Subject: Following up on our quotation
+
+Dear ${x.customer},
+
+I hope you are doing well.
+
+I wanted to follow up on our quotation of €${x.amount} sent on ${x.date}. Have you had a chance to review it?
+
+Please let us know if you have any questions or need further information. We would be happy to help.
+
+Best regards`;
+
+  document.getElementById("draftArea").style.display = "block";
+  document.getElementById("draftArea").scrollIntoView({behavior:"smooth"});
+}
+
+function copyDraft() {
+  navigator.clipboard.writeText(document.getElementById("draft").value)
+    .then(() => {
+      document.getElementById("copyStatus").textContent = "Message copied.";
+    })
+    .catch(() => {
+      document.getElementById("copyStatus").textContent =
+        "Please select and copy the message manually.";
+    });
+}
+
+loadQuotes();
 </script>
 </body>
 </html>
